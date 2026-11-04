@@ -479,7 +479,11 @@ function Records({ rows, ipLabel = "IP address" }) {
 function Admin() {
   const [summary, setSummary] = useState(null),
     [students, setStudents] = useState([]),
-    [err, setErr] = useState("");
+    [err, setErr] = useState(""),
+    [networkRanges, setNetworkRanges] = useState(""),
+    [networkConfigured, setNetworkConfigured] = useState(false),
+    [networkMessage, setNetworkMessage] = useState(""),
+    [savingNetwork, setSavingNetwork] = useState(false);
   async function load() {
     try {
       const [s, u] = await Promise.all([
@@ -492,8 +496,47 @@ function Admin() {
       setErr(e.response?.data?.message || "Unable to load admin data");
     }
   }
+  async function loadNetworkRestriction() {
+    try {
+      const { data } = await api.get("/attendance/admin/network-restriction");
+      setNetworkRanges(data.ranges.join(", "));
+      setNetworkConfigured(data.configured);
+    } catch (e) {
+      setNetworkMessage(
+        e.response?.data?.message || "Unable to load network restriction.",
+      );
+    }
+  }
+  async function saveNetworkRestriction(event) {
+    event.preventDefault();
+    setSavingNetwork(true);
+    setNetworkMessage("");
+    try {
+      const ranges = networkRanges
+        .split(",")
+        .map((range) => range.trim())
+        .filter(Boolean);
+      const { data } = await api.put("/attendance/admin/network-restriction", {
+        ranges,
+      });
+      setNetworkRanges(data.ranges.join(", "));
+      setNetworkConfigured(data.configured);
+      setNetworkMessage(
+        data.configured
+          ? "Authorized QLeap network saved."
+          : "No network is configured. Attendance is denied until one is saved.",
+      );
+    } catch (e) {
+      setNetworkMessage(
+        e.response?.data?.message || "Unable to save network restriction.",
+      );
+    } finally {
+      setSavingNetwork(false);
+    }
+  }
   useEffect(() => {
     load();
+    loadNetworkRestriction();
     socket.connect();
     socket.on("attendance:marked", load);
     return () => {
@@ -522,6 +565,42 @@ function Admin() {
           Live campus attendance · {summary?.date || "Loading…"}
         </p>
         {err && <p className="notice">{err}</p>}
+        <details className="panel">
+          <summary>Settings</summary>
+          <section>
+            <h2>Authorized Network</h2>
+            <p className="muted">
+              Enter the college public IP address or CIDR range. Separate
+              multiple entries with commas. Attendance is denied until an
+              authorized network is configured.
+            </p>
+            <form onSubmit={saveNetworkRestriction}>
+              <label>
+                Public IP / CIDR
+                <input
+                  type="text"
+                  value={networkRanges}
+                  onChange={(event) => setNetworkRanges(event.target.value)}
+                  placeholder="203.0.113.10/32, 2001:db8::/32"
+                  aria-describedby="network-restriction-status"
+                />
+              </label>
+              <button type="submit" disabled={savingNetwork}>
+                {savingNetwork ? "Saving…" : "Save network"}
+              </button>
+            </form>
+            <p
+              className="notice"
+              id="network-restriction-status"
+              role="status"
+            >
+              {networkMessage ||
+                (networkConfigured
+                  ? "Students can mark attendance only from the saved network."
+                  : "No authorized network is configured; attendance is currently denied.")}
+            </p>
+          </section>
+        </details>
         <div className="stats">
           {[
             ["Total students", summary?.totalStudents],

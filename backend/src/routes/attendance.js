@@ -1,22 +1,88 @@
 import { Router } from 'express';
+import { isIP } from 'node:net';
 import ipRangeCheck from 'ip-range-check';
 import Student from '../models/Student.js';
 import Attendance from '../models/Attendance.js';
+import NetworkRestriction from '../models/NetworkRestriction.js';
 import { auth, adminOnly } from '../middleware/auth.js';
 const router = Router();
+const NETWORK_RESTRICTION_ID = 'qleap-authorized-network';
 const dateKey = () => new Intl.DateTimeFormat('en-CA', { timeZone: process.env.ATTENDANCE_TIMEZONE || 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 const timeParts = () => new Intl.DateTimeFormat('en-GB', { timeZone: process.env.ATTENDANCE_TIMEZONE || 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date()).split(':').map(Number);
 const clientIpFor = req => req.ip?.replace(/^::ffff:/, '');
+function parseNetworkRanges(value) {
+  if (!Array.isArray(value) || value.length > 20 || value.some(range => typeof range !== 'string')) {
+    return null;
+  }
+
+  const ranges = value.map(range => range.trim()).filter(Boolean);
+  for (const range of ranges) {
+    const [address, prefix, ...extra] = range.split('/');
+    const version = isIP(address);
+    if (!version || extra.length > 0) return null;
+    if (prefix !== undefined) {
+      const maxPrefix = version === 4 ? 32 : 128;
+      if (!/^\d+$/.test(prefix) || Number(prefix) > maxPrefix) return null;
+    }
+  }
+  return [...new Set(ranges)];
+}
+
+router.get('/admin/network-restriction', auth, adminOnly, async (_req, res) => {
+  try {
+    const config = await NetworkRestriction.findById(NETWORK_RESTRICTION_ID).lean();
+    const ranges = config?.ranges || [];
+    res.json({
+      ranges,
+      configured: ranges.length > 0,
+      updatedAt: config?.updatedAt || null,
+    });
+  } catch (error) {
+    console.error('Failed to read authorized network configuration:', error.message);
+    res.status(500).json({ message: 'Unable to load authorized network configuration.' });
+  }
+});
+
+router.put('/admin/network-restriction', auth, adminOnly, async (req, res) => {
+  try {
+    const ranges = parseNetworkRanges(req.body?.ranges);
+    if (ranges === null) {
+      return res.status(400).json({
+        message: 'Enter up to 20 valid IP addresses or CIDR ranges.',
+      });
+    }
+
+    const config = await NetworkRestriction.findOneAndUpdate(
+      { _id: NETWORK_RESTRICTION_ID },
+      { $set: { ranges, updatedBy: req.user.id } },
+      { new: true, upsert: true, runValidators: true, setDefaultsOnInsert: true },
+    );
+    res.json({
+      ranges: config.ranges,
+      configured: config.ranges.length > 0,
+      updatedAt: config.updatedAt,
+    });
+  } catch (error) {
+    console.error('Failed to save authorized network configuration:', error.message);
+    res.status(500).json({ message: 'Unable to save authorized network configuration.' });
+  }
+});
+
 router.post('/mark', auth, async (req, res) => {
   try {
     const clientIp = clientIpFor(req);
-    const allowedRanges = (process.env.ALLOWED_IP_RANGE || '')
-      .split(',')
-      .map(range => range.trim())
-      .filter(Boolean);
-    if (allowedRanges.length && (!clientIp || !ipRangeCheck(clientIp, allowedRanges))) {
+    const networkConfig = await NetworkRestriction.findById(NETWORK_RESTRICTION_ID)
+      .select('ranges')
+      .lean();
+    const allowedRanges = networkConfig?.ranges || [];
+    if (!allowedRanges.length) {
+      return res.status(503).json({
+        message: 'Authorized QLeap network has not been configured. Contact an administrator.',
+      });
+    }
+    if (!clientIp || !ipRangeCheck(clientIp, allowedRanges)) {
       return res.status(403).json({
-        message: 'Attendance is only allowed when connected to institute WiFi',
+        message: 'Attendance is allowed only through the authorized network.',
         clientIp,
       });
     }

@@ -15,7 +15,7 @@ cd backend
 copy .env.example .env
 ```
 
-Generate a secret with `node -p "require('crypto').randomBytes(48).toString('base64url')"` and put it in `.env` as `JWT_SECRET`. Set your MongoDB URI and admin credentials. `ALLOWED_IP_RANGE=127.0.0.1/32,::1/128` permits only local requests for development; replace it with the institute's actual allowed IP/CIDR. The example private network `192.168.0.0`–`192.168.0.255` is written as `192.168.0.0/24` and works when the backend can see campus device addresses directly. For a cloud-hosted backend such as Render, configure the institute's public egress IP/CIDR instead, because the router hides private `192.168.x.x` addresses. Multiple IPv4/IPv6 ranges may be comma-separated. The server will refuse to start if `JWT_SECRET` is missing.
+Generate a secret with `node -p "require('crypto').randomBytes(48).toString('base64url')"` and put it in `.env` as `JWT_SECRET`. Set your MongoDB URI and admin credentials. The server will refuse to start if `JWT_SECRET` is missing. Network access is not configured through an environment variable: sign in as an admin and enter the authorized IP address or CIDR range in the admin panel. Leave it empty to deny attendance until configured. On Render, use the institute's public egress IP/CIDR; private ranges such as `192.168.0.0/24` are not visible through the college router. Multiple IPv4/IPv6 ranges may be comma-separated. For local development, configure the loopback address shown by the backend (usually `127.0.0.1/32` or `::1/128`).
 
 Install and start:
 
@@ -59,13 +59,13 @@ Download the matching model files from the face-api.js project's official weight
 ## Important limitations / before real deployment
 
 - This is an educational MVP, not production biometric software. Use consent, retention rules, secure transport, access controls, and a privacy review before using real student biometrics.
-- The `ALLOWED_IP_RANGE` setting is optional. When unset or blank, requests from any network pass the IP gate; when configured with one or more comma-separated IP/CIDR ranges, the backend enforces them. Face verification and authentication remain required in either mode.
-- IP checks use Express's resolved client IP, not arbitrary client-supplied forwarding headers. `TRUST_PROXY_HOPS` defaults to `0`; set it to the exact number of trusted reverse proxies in front of the backend (for the Render web service's single ingress proxy, use `1`). Never use `true` or a hop count that exceeds the real proxy chain.
+- An administrator configures the authorized QLeap network in the admin panel. The backend stores the IP/CIDR ranges in MongoDB and enforces them for every attendance request. If no range is configured, attendance is denied; authentication and face verification remain required.
+- IP checks use Express's resolved client IP, not arbitrary client-supplied forwarding headers. `TRUST_PROXY_HOPS` defaults to `0` locally and `1` on Render; override it only when the hosting proxy chain is confirmed. Never use `true` or a hop count that exceeds the real proxy chain.
 - Browser-based face descriptors are not liveness detection; a photo/video spoof may be possible. Add liveness checks and review false-accept/false-reject thresholds for production.
 - Admin account credentials are seeded from environment variables. Change the sample password immediately.
 - Attendance can be marked throughout the day: before 9:30 AM is `Present`, and from 9:30 AM onward is `Late`. The 10:30 AM absent job uses the configured timezone; a later successful face verification updates that day's `Absent` entry to `Late`. For reliable deployment, use a single scheduler/worker and monitor job execution.
 - `Attendance` has a unique index on student + date to prevent duplicates.
-- For institute-only deployments, set `ALLOWED_IP_RANGE` to the institute's public egress IP/CIDR. The private example range `192.168.0.0/24` will not match a request sent over the public internet unless the backend is on the institute LAN/VPN. Set `TRUST_PROXY_HOPS` to the verified proxy-chain length; Render's single ingress proxy uses `1`.
+- Configure the institute's public egress IP/CIDR in the admin panel. A private range such as `192.168.0.0/24` will not match requests that reach Render over the public internet unless the backend is on the institute LAN/VPN.
 
 ## API overview
 
@@ -76,4 +76,5 @@ Download the matching model files from the face-api.js project's official weight
 - `GET /api/attendance/my-ip` — authenticated IP address seen by the attendance server
 - `GET /api/attendance/admin/summary` — admin daily statistics and records
 - `GET /api/attendance/admin/students` — admin student list
+- `GET /api/attendance/admin/network-restriction` and `PUT /api/attendance/admin/network-restriction` — admin-only authorized network configuration
 - `GET /api/attendance/admin/export` — admin CSV export, including the full recorded IP address

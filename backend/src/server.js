@@ -17,7 +17,11 @@ if (!process.env.JWT_SECRET) {
 }
 const app = express();
 const server = http.createServer(app);
-const trustedProxyHops = Number(process.env.TRUST_PROXY_HOPS || 0);
+const proxyHopsSetting = process.env.TRUST_PROXY_HOPS?.trim();
+const defaultProxyHops = process.env.RENDER === "true" ? 1 : 0;
+const trustedProxyHops = proxyHopsSetting
+  ? Number(proxyHopsSetting)
+  : defaultProxyHops;
 if (!Number.isInteger(trustedProxyHops) || trustedProxyHops < 0) {
   throw new Error("TRUST_PROXY_HOPS must be a non-negative integer.");
 }
