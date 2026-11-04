@@ -75,12 +75,25 @@ router.post('/mark', auth, async (req, res) => {
       .select('ranges')
       .lean();
     const allowedRanges = networkConfig?.ranges || [];
+    const networkMatched = Boolean(
+      clientIp && allowedRanges.length && ipRangeCheck(clientIp, allowedRanges),
+    );
+    console.info('[attendance-network-check]', JSON.stringify({
+      detectedIp: req.ip || null,
+      clientIp: clientIp || null,
+      clientIpVersion: clientIp ? isIP(clientIp) : 0,
+      socketRemoteAddress: req.socket.remoteAddress || null,
+      trustedProxyChain: req.ips,
+      trustedProxyHops: req.app.get('trust proxy'),
+      authorizedRanges: allowedRanges,
+      matched: networkMatched,
+    }));
     if (!allowedRanges.length) {
       return res.status(503).json({
         message: 'Authorized QLeap network has not been configured. Contact an administrator.',
       });
     }
-    if (!clientIp || !ipRangeCheck(clientIp, allowedRanges)) {
+    if (!networkMatched) {
       return res.status(403).json({
         message: 'Attendance is allowed only through the authorized network.',
         clientIp,

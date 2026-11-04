@@ -18,12 +18,19 @@ if (!process.env.JWT_SECRET) {
 const app = express();
 const server = http.createServer(app);
 const proxyHopsSetting = process.env.TRUST_PROXY_HOPS?.trim();
-const defaultProxyHops = process.env.RENDER === "true" ? 1 : 0;
-const trustedProxyHops = proxyHopsSetting
-  ? Number(proxyHopsSetting)
-  : defaultProxyHops;
+const isRender = process.env.RENDER === "true";
+const trustedProxyHops = isRender
+  ? 1
+  : proxyHopsSetting
+    ? Number(proxyHopsSetting)
+    : 0;
 if (!Number.isInteger(trustedProxyHops) || trustedProxyHops < 0) {
   throw new Error("TRUST_PROXY_HOPS must be a non-negative integer.");
+}
+if (isRender && proxyHopsSetting && Number(proxyHopsSetting) !== 1) {
+  console.warn(
+    "Ignoring TRUST_PROXY_HOPS on Render; the public ingress proxy is configured as one trusted hop.",
+  );
 }
 app.set("trust proxy", trustedProxyHops);
 const io = new Server(server, {
