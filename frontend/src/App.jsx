@@ -462,11 +462,7 @@ function Records({ rows, ipLabel = "IP address" }) {
               <td>
                 {r.markedAt ? new Date(r.markedAt).toLocaleTimeString() : "—"}
               </td>
-              <td>
-                {r.clientIp === "::1"
-                  ? "Localhost (IPv6 loopback)"
-                  : r.clientIp || "—"}
-              </td>
+              <td>{r.clientIp || "—"}</td>
             </tr>
           ))}
         </tbody>
