@@ -64,6 +64,13 @@ router.get('/mine', auth, async (req, res) => {
   const records = await Attendance.find({ student: req.user.id }).sort({ date: -1 }).lean();
   res.json(records);
 });
+router.get('/my-ip', auth, (req, res) => {
+  const clientIp = requestIp.getClientIp(req)?.replace(/^::ffff:/, '');
+  if (!clientIp) {
+    return res.status(503).json({ message: 'Could not determine your connection IP address.' });
+  }
+  res.json({ ip: clientIp });
+});
 router.get('/admin/summary', auth, adminOnly, async (req, res) => {
   const date = req.query.date || dateKey();
   const students = await Student.countDocuments({ role: 'student' });
