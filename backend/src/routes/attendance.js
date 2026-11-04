@@ -23,14 +23,42 @@ router.post('/mark', auth, async (req, res) => {
     const [hour, minute] = timeParts(); const minutes = hour * 60 + minute;
     const status = minutes < 570 ? 'Present' : 'Late';
     const date = dateKey();
-    const record = await Attendance.findOneAndUpdate(
+    let record = await Attendance.findOneAndUpdate(
       { student: student._id, date, status: 'Absent' },
       { $set: { status, clientIp, markedAt: new Date() } },
       { new: true },
-    ) || await Attendance.create({ student: student._id, studentId: student.studentId, date, status, clientIp });
+    );
+    if (!record) {
+      const existing = await Attendance.findOneAndUpdate(
+        { student: student._id, date },
+        { $set: { clientIp } },
+        { new: true },
+      );
+      if (existing) {
+        return res.status(409).json({
+          message: 'Attendance already recorded for today',
+          attendance: existing,
+        });
+      }
+      record = await Attendance.create({ student: student._id, studentId: student.studentId, date, status, clientIp });
+    }
     req.app.get('io').emit('attendance:marked', { studentName: student.name, studentId: student.studentId, status, date: record.date, markedAt: record.markedAt });
     res.status(201).json({ message: `Face detected. Attendance marked successfully as ${status}.`, attendance: record });
-  } catch (e) { res.status(409).json({ message: e.code === 11000 ? 'Attendance already recorded for today' : e.message }); }
+  } catch (e) {
+    if (e.code === 11000) {
+      const clientIp = requestIp.getClientIp(req)?.replace('::ffff:', '');
+      const attendance = await Attendance.findOneAndUpdate(
+        { student: req.user.id, date: dateKey() },
+        { $set: { clientIp } },
+        { new: true },
+      );
+      return res.status(409).json({
+        message: 'Attendance already recorded for today',
+        ...(attendance && { attendance }),
+      });
+    }
+    res.status(409).json({ message: e.message });
+  }
 });
 router.get('/mine', auth, async (req, res) => res.json(await Attendance.find({ student: req.user.id }).sort({ date: -1 })));
 router.get('/admin/summary', auth, adminOnly, async (req, res) => {

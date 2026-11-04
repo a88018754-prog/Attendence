@@ -389,7 +389,13 @@ function Student() {
       const h = await api.get("/attendance/mine");
       setHistory(h.data);
     } catch (e) {
-      const { message, clientIp } = e.response?.data || {};
+      const { message, clientIp, attendance } = e.response?.data || {};
+      if (attendance) {
+        setHistory((records) => [
+          attendance,
+          ...records.filter((record) => record._id !== attendance._id),
+        ]);
+      }
       setMsg(
         message === "Attendance is only allowed when connected to institute Wi-Fi" &&
           clientIp
