@@ -389,7 +389,7 @@ function Student() {
       const h = await api.get("/attendance/mine");
       setHistory(h.data);
     } catch (e) {
-      const { message, attendance } = e.response?.data || {};
+      const { message, clientIp, attendance } = e.response?.data || {};
       if (attendance) {
         setHistory((records) => [
           attendance,
@@ -397,7 +397,12 @@ function Student() {
         ]);
       }
       setMsg(
-        message || cameraErrorMessage(e) || "Face verification failed. Please try again.",
+        message === "Attendance is only allowed when connected to institute WiFi" &&
+          clientIp
+          ? `${message} Detected IP: ${clientIp}. Add the institute's public IP/CIDR to ALLOWED_IP_RANGE in Render.`
+          : message ||
+              cameraErrorMessage(e) ||
+              "Face verification failed. Please try again.",
       );
     } finally {
       stopStream(cameraStream);
