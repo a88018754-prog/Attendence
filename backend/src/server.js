@@ -17,6 +17,11 @@ if (!process.env.JWT_SECRET) {
 }
 const app = express();
 const server = http.createServer(app);
+const trustedProxyHops = Number(process.env.TRUST_PROXY_HOPS || 0);
+if (!Number.isInteger(trustedProxyHops) || trustedProxyHops < 0) {
+  throw new Error("TRUST_PROXY_HOPS must be a non-negative integer.");
+}
+app.set("trust proxy", trustedProxyHops);
 const io = new Server(server, {
   cors: { origin: process.env.CLIENT_URL || "http://localhost:5173" },
 });

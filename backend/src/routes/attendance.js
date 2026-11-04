@@ -1,15 +1,15 @@
 import { Router } from 'express';
 import ipRangeCheck from 'ip-range-check';
-import requestIp from 'request-ip';
 import Student from '../models/Student.js';
 import Attendance from '../models/Attendance.js';
 import { auth, adminOnly } from '../middleware/auth.js';
 const router = Router();
 const dateKey = () => new Intl.DateTimeFormat('en-CA', { timeZone: process.env.ATTENDANCE_TIMEZONE || 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 const timeParts = () => new Intl.DateTimeFormat('en-GB', { timeZone: process.env.ATTENDANCE_TIMEZONE || 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date()).split(':').map(Number);
+const clientIpFor = req => req.ip?.replace(/^::ffff:/, '');
 router.post('/mark', auth, async (req, res) => {
   try {
-    const clientIp = requestIp.getClientIp(req)?.replace('::ffff:', '');
+    const clientIp = clientIpFor(req);
     const allowedRanges = (process.env.ALLOWED_IP_RANGE || '')
       .split(',')
       .map(range => range.trim())
@@ -46,7 +46,7 @@ router.post('/mark', auth, async (req, res) => {
     res.status(201).json({ message: `Face detected. Attendance marked successfully as ${status}.`, attendance: record });
   } catch (e) {
     if (e.code === 11000) {
-      const clientIp = requestIp.getClientIp(req)?.replace('::ffff:', '');
+      const clientIp = clientIpFor(req);
       const attendance = await Attendance.findOneAndUpdate(
         { student: req.user.id, date: dateKey() },
         { $set: { clientIp } },
@@ -65,7 +65,7 @@ router.get('/mine', auth, async (req, res) => {
   res.json(records);
 });
 router.get('/my-ip', auth, (req, res) => {
-  const clientIp = requestIp.getClientIp(req)?.replace(/^::ffff:/, '');
+  const clientIp = clientIpFor(req);
   if (!clientIp) {
     return res.status(503).json({ message: 'Could not determine your connection IP address.' });
   }

@@ -59,12 +59,12 @@ Download the matching model files from the face-api.js project's official weight
 ## Important limitations / before real deployment
 
 - This is an educational MVP, not production biometric software. Use consent, retention rules, secure transport, access controls, and a privacy review before using real student biometrics.
-- IP checks must be configured with the institution's actual network range. Behind a reverse proxy, configure trusted proxies carefully; do not blindly trust client-supplied `X-Forwarded-For` headers.
+- IP checks use Express's resolved client IP, not arbitrary client-supplied forwarding headers. `TRUST_PROXY_HOPS` defaults to `0`; set it to the exact number of trusted reverse proxies in front of the backend (for the Render web service's single ingress proxy, use `1`). Never use `true` or a hop count that exceeds the real proxy chain.
 - Browser-based face descriptors are not liveness detection; a photo/video spoof may be possible. Add liveness checks and review false-accept/false-reject thresholds for production.
 - Admin account credentials are seeded from environment variables. Change the sample password immediately.
 - Attendance can be marked throughout the day: before 9:30 AM is `Present`, and from 9:30 AM onward is `Late`. The 10:30 AM absent job uses the configured timezone; a later successful face verification updates that day's `Absent` entry to `Late`. For reliable deployment, use a single scheduler/worker and monitor job execution.
 - `Attendance` has a unique index on student + date to prevent duplicates.
-- Set `ALLOWED_IP_RANGE` to the institute's public egress IP/CIDR in deployment. The loopback example only allows requests made directly from the same computer and does not authorize campus users connecting to a deployed backend. Behind a reverse proxy, configure trusted proxies carefully; do not blindly trust client-supplied `X-Forwarded-For` headers.
+- Set `ALLOWED_IP_RANGE` to the institute's public egress IP/CIDR in deployment. The loopback example only allows requests made directly from the same computer and does not authorize campus users connecting to a deployed backend. Set `TRUST_PROXY_HOPS` to the verified proxy-chain length; Render's single ingress proxy uses `1`. The private example range `192.168.0.0/24` will not match a request sent over the public internet unless the backend is on the institute LAN/VPN.
 
 ## API overview
 
