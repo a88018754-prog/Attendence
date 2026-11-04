@@ -389,7 +389,7 @@ function Student() {
       const h = await api.get("/attendance/mine");
       setHistory(h.data);
     } catch (e) {
-      const { message, clientIp, attendance } = e.response?.data || {};
+      const { message, attendance } = e.response?.data || {};
       if (attendance) {
         setHistory((records) => [
           attendance,
@@ -397,12 +397,7 @@ function Student() {
         ]);
       }
       setMsg(
-        message === "Attendance is only allowed when connected to institute Wi-Fi" &&
-          clientIp
-          ? `${message}. Detected IP: ${clientIp}. If you are on institute Wi-Fi, ask the administrator to add this public IP to the backend ALLOWED_IP_RANGE.`
-          : message ||
-              cameraErrorMessage(e) ||
-              "Face verification failed. Please try again.",
+        message || cameraErrorMessage(e) || "Face verification failed. Please try again.",
       );
     } finally {
       stopStream(cameraStream);

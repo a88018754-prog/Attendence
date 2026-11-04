@@ -14,7 +14,7 @@ router.post('/mark', auth, async (req, res) => {
       .split(',')
       .map(range => range.trim())
       .filter(Boolean);
-    if (!clientIp || !allowedRanges.length || !ipRangeCheck(clientIp, allowedRanges)) return res.status(403).json({ message: 'Attendance is only allowed when connected to institute Wi-Fi', clientIp });
+    if (!clientIp || !allowedRanges.length || !ipRangeCheck(clientIp, allowedRanges)) return res.status(403).json({ message: 'Attendance is only allowed when connected to institute WiFi', clientIp });
     const student = await Student.findById(req.user.id);
     const { descriptor } = req.body;
     if (!student || !Array.isArray(descriptor) || descriptor.length !== 128 || student.faceDescriptor.length !== 128) return res.status(400).json({ message: 'Face data unavailable. Register your face first.' });

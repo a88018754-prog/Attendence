@@ -15,7 +15,7 @@ cd backend
 copy .env.example .env
 ```
 
-Generate a secret with `node -p "require('crypto').randomBytes(48).toString('base64url')"` and put it in `.env` as `JWT_SECRET`. Set your MongoDB URI and admin credentials. `ALLOWED_IP_RANGE=127.0.0.1/32,::1/128` permits only local requests for development; replace it with the institute's actual public egress IP/CIDR for deployment. Multiple IPv4/IPv6 ranges may be comma-separated. The server will refuse to start if `JWT_SECRET` is missing.
+Generate a secret with `node -p "require('crypto').randomBytes(48).toString('base64url')"` and put it in `.env` as `JWT_SECRET`. Set your MongoDB URI and admin credentials. `ALLOWED_IP_RANGE=127.0.0.1/32,::1/128` permits only local requests for development; replace it with the institute's actual allowed IP/CIDR. The example private network `192.168.0.0`–`192.168.0.255` is written as `192.168.0.0/24` and works when the backend can see campus device addresses directly. For a cloud-hosted backend such as Render, configure the institute's public egress IP/CIDR instead, because the router hides private `192.168.x.x` addresses. Multiple IPv4/IPv6 ranges may be comma-separated. The server will refuse to start if `JWT_SECRET` is missing.
 
 Install and start:
 
