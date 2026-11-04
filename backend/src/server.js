@@ -17,27 +17,41 @@ if (!process.env.JWT_SECRET) {
 }
 const app = express();
 const server = http.createServer(app);
+const clientUrl = process.env.CLIENT_URL || "http://localhost:5173";
+const clientOrigins = [clientUrl];
+try {
+  const configuredOrigin = new URL(clientUrl);
+  const loopbackAliases = {
+    localhost: "127.0.0.1",
+    "127.0.0.1": "localhost",
+  };
+  const alias = loopbackAliases[configuredOrigin.hostname];
+  if (alias) {
+    configuredOrigin.hostname = alias;
+    clientOrigins.push(configuredOrigin.origin);
+  }
+} catch {
+  // Keep the configured origin unchanged if it is not a valid URL.
+}
 const proxyHopsSetting = process.env.TRUST_PROXY_HOPS?.trim();
 const isRender = process.env.RENDER === "true";
-const trustedProxyHops = isRender
-  ? 1
-  : proxyHopsSetting
-    ? Number(proxyHopsSetting)
-    : 0;
-if (!Number.isInteger(trustedProxyHops) || trustedProxyHops < 0) {
-  throw new Error("TRUST_PROXY_HOPS must be a non-negative integer.");
-}
-if (isRender && proxyHopsSetting && Number(proxyHopsSetting) !== 1) {
-  console.warn(
-    "Ignoring TRUST_PROXY_HOPS on Render; the public ingress proxy is configured as one trusted hop.",
-  );
+const defaultProxyHops = isRender ? 2 : 0;
+const trustedProxyHops = proxyHopsSetting
+  ? Number(proxyHopsSetting)
+  : defaultProxyHops;
+if (
+  !Number.isInteger(trustedProxyHops) ||
+  trustedProxyHops < 0 ||
+  trustedProxyHops > 5
+) {
+  throw new Error("TRUST_PROXY_HOPS must be an integer from 0 to 5.");
 }
 app.set("trust proxy", trustedProxyHops);
 const io = new Server(server, {
-  cors: { origin: process.env.CLIENT_URL || "http://localhost:5173" },
+  cors: { origin: clientOrigins },
 });
 app.set("io", io);
-app.use(cors({ origin: process.env.CLIENT_URL || "http://localhost:5173" }));
+app.use(cors({ origin: clientOrigins }));
 app.use(express.json({ limit: "1mb" }));
 app.get("/api/health", (_, res) => res.json({ status: "ok" }));
 app.use("/api/auth", authRoutes);
