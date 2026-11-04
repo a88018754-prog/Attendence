@@ -1,31 +1,67 @@
 import { Router } from 'express';
 import { isIP } from 'node:net';
+import ipaddr from 'ipaddr.js';
 import ipRangeCheck from 'ip-range-check';
 import Student from '../models/Student.js';
 import Attendance from '../models/Attendance.js';
 import NetworkRestriction from '../models/NetworkRestriction.js';
 import { auth, adminOnly } from '../middleware/auth.js';
+import { getPublicClientIp } from '../utils/clientIp.js';
 const router = Router();
 const NETWORK_RESTRICTION_ID = 'qleap-authorized-network';
 const dateKey = () => new Intl.DateTimeFormat('en-CA', { timeZone: process.env.ATTENDANCE_TIMEZONE || 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 const timeParts = () => new Intl.DateTimeFormat('en-GB', { timeZone: process.env.ATTENDANCE_TIMEZONE || 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date()).split(':').map(Number);
-const clientIpFor = req => req.ip?.replace(/^::ffff:/, '');
+const clientIpFor = req => getPublicClientIp(req).ip;
+const IP_DETECTION_FAILURE_MESSAGE =
+  'Unable to verify your network. Please try again or contact the administrator.';
 function parseNetworkRanges(value) {
   if (!Array.isArray(value) || value.length > 20 || value.some(range => typeof range !== 'string')) {
     return null;
   }
 
-  const ranges = value.map(range => range.trim()).filter(Boolean);
-  for (const range of ranges) {
-    const [address, prefix, ...extra] = range.split('/');
-    const version = isIP(address);
-    if (!version || extra.length > 0) return null;
+  const ranges = [];
+  for (const inputRange of value.map(range => range.trim()).filter(Boolean)) {
+    const [address, prefix, ...extra] = inputRange.split('/');
+    if (!isIP(address)) return null;
+    let parsedAddress;
+    try {
+      parsedAddress = ipaddr.parse(address);
+    } catch {
+      return null;
+    }
+
+    if (extra.length > 0) return null;
     if (prefix !== undefined) {
-      const maxPrefix = version === 4 ? 32 : 128;
+      const maxPrefix = parsedAddress.kind() === 'ipv4' ? 32 : 128;
       if (!/^\d+$/.test(prefix) || Number(prefix) > maxPrefix) return null;
     }
+
+    let normalizedPrefix = prefix === undefined ? undefined : Number(prefix);
+    if (parsedAddress.kind() === 'ipv6' && parsedAddress.isIPv4MappedAddress()) {
+      if (normalizedPrefix !== undefined && normalizedPrefix < 96) return null;
+      parsedAddress = parsedAddress.toIPv4Address();
+      if (normalizedPrefix !== undefined) normalizedPrefix -= 96;
+    }
+    if (parsedAddress.range() !== 'unicast') return null;
+
+    const normalizedRange = `${parsedAddress.toString()}${normalizedPrefix === undefined ? '' : `/${normalizedPrefix}`}`;
+    ranges.push(normalizedRange);
   }
+
   return [...new Set(ranges)];
+}
+
+function forwardedForCandidatesForDiagnostics(req) {
+  const forwardedFor = req.headers['x-forwarded-for'];
+  if (typeof forwardedFor !== 'string') return [];
+
+  return forwardedFor
+    .slice(0, 2048)
+    .split(',')
+    .slice(0, 8)
+    .map(address => address.trim())
+    .filter(address => isIP(address))
+    .map(address => ipaddr.process(address).toString());
 }
 
 router.get('/admin/network-restriction', auth, adminOnly, async (_req, res) => {
@@ -48,7 +84,7 @@ router.put('/admin/network-restriction', auth, adminOnly, async (req, res) => {
     const ranges = parseNetworkRanges(req.body?.ranges);
     if (ranges === null) {
       return res.status(400).json({
-        message: 'Enter up to 20 valid IP addresses or CIDR ranges.',
+        message: 'Enter up to 20 valid public IP addresses or CIDR ranges.',
       });
     }
 
@@ -70,7 +106,8 @@ router.put('/admin/network-restriction', auth, adminOnly, async (req, res) => {
 
 router.post('/mark', auth, async (req, res) => {
   try {
-    const clientIp = clientIpFor(req);
+    const clientDetection = getPublicClientIp(req);
+    const clientIp = clientDetection.ip;
     const networkConfig = await NetworkRestriction.findById(NETWORK_RESTRICTION_ID)
       .select('ranges')
       .lean();
@@ -79,11 +116,14 @@ router.post('/mark', auth, async (req, res) => {
       clientIp && allowedRanges.length && ipRangeCheck(clientIp, allowedRanges),
     );
     console.info('[attendance-network-check]', JSON.stringify({
-      detectedIp: req.ip || null,
+      detectedIp: clientDetection.detectedIp,
       clientIp: clientIp || null,
-      clientIpVersion: clientIp ? isIP(clientIp) : 0,
+      clientIpVersion: clientIp ? ipaddr.parse(clientIp).kind() : null,
+      detectionFailure: clientDetection.reason,
       socketRemoteAddress: req.socket.remoteAddress || null,
       trustedProxyChain: req.ips,
+      untrustedForwardedForForDiagnosticsOnly:
+        forwardedForCandidatesForDiagnostics(req),
       trustedProxyHops: req.app.get('trust proxy'),
       authorizedRanges: allowedRanges,
       matched: networkMatched,
@@ -93,10 +133,12 @@ router.post('/mark', auth, async (req, res) => {
         message: 'Authorized QLeap network has not been configured. Contact an administrator.',
       });
     }
+    if (!clientIp) {
+      return res.status(503).json({ message: IP_DETECTION_FAILURE_MESSAGE });
+    }
     if (!networkMatched) {
       return res.status(403).json({
-        message: 'Attendance is allowed only through the authorized network.',
-        clientIp,
+        message: 'Attendance is not allowed from this network.',
       });
     }
     const student = await Student.findById(req.user.id);
@@ -127,7 +169,7 @@ router.post('/mark', auth, async (req, res) => {
       record = await Attendance.create({ student: student._id, studentId: student.studentId, date, status, clientIp });
     }
     req.app.get('io').emit('attendance:marked', { studentName: student.name, studentId: student.studentId, status, date: record.date, markedAt: record.markedAt });
-    res.status(201).json({ message: `Face detected. Attendance marked successfully as ${status}.`, attendance: record });
+    res.status(201).json({ message: 'Attendance marked successfully.', attendance: record });
   } catch (e) {
     if (e.code === 11000) {
       const clientIp = clientIpFor(req);
@@ -151,7 +193,7 @@ router.get('/mine', auth, async (req, res) => {
 router.get('/my-ip', auth, (req, res) => {
   const clientIp = clientIpFor(req);
   if (!clientIp) {
-    return res.status(503).json({ message: 'Could not determine your connection IP address.' });
+    return res.status(503).json({ message: IP_DETECTION_FAILURE_MESSAGE });
   }
   res.json({ ip: clientIp });
 });

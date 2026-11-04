@@ -430,8 +430,7 @@ function Student({ theme, onToggleTheme }) {
       const h = await api.get("/attendance/mine");
       setHistory(h.data);
     } catch (e) {
-      const { message, clientIp, attendance } = e.response?.data || {};
-      const status = e.response?.status;
+      const { message, attendance } = e.response?.data || {};
       if (attendance) {
         setHistory((records) => [
           attendance,
@@ -439,11 +438,9 @@ function Student({ theme, onToggleTheme }) {
         ]);
       }
       setMsg(
-        status === 403 && clientIp
-          ? `${message} The attendance server sees your IP as ${clientIp}. Ask an administrator to compare it with the Authorized Network saved in the admin panel.`
-          : message ||
-              cameraErrorMessage(e) ||
-              "Face verification failed. Please try again.",
+        message ||
+          cameraErrorMessage(e) ||
+          "Face verification failed. Please try again.",
       );
     } finally {
       stopStream(cameraStream);
@@ -624,6 +621,7 @@ function Admin({ theme, onToggleTheme }) {
     [students, setStudents] = useState([]),
     [err, setErr] = useState(""),
     [networkRanges, setNetworkRanges] = useState(""),
+    [savedNetworkRanges, setSavedNetworkRanges] = useState(""),
     [networkConfigured, setNetworkConfigured] = useState(false),
     [networkMessage, setNetworkMessage] = useState(""),
     [savingNetwork, setSavingNetwork] = useState(false);
@@ -643,6 +641,7 @@ function Admin({ theme, onToggleTheme }) {
     try {
       const { data } = await api.get("/attendance/admin/network-restriction");
       setNetworkRanges(data.ranges.join(", "));
+      setSavedNetworkRanges(data.ranges.join(", "));
       setNetworkConfigured(data.configured);
     } catch (e) {
       setNetworkMessage(
@@ -650,19 +649,15 @@ function Admin({ theme, onToggleTheme }) {
       );
     }
   }
-  async function saveNetworkRestriction(event) {
-    event.preventDefault();
+  async function persistNetworkRanges(ranges) {
     setSavingNetwork(true);
     setNetworkMessage("");
     try {
-      const ranges = networkRanges
-        .split(",")
-        .map((range) => range.trim())
-        .filter(Boolean);
       const { data } = await api.put("/attendance/admin/network-restriction", {
         ranges,
       });
       setNetworkRanges(data.ranges.join(", "));
+      setSavedNetworkRanges(data.ranges.join(", "));
       setNetworkConfigured(data.configured);
       setNetworkMessage(
         data.configured
@@ -676,6 +671,14 @@ function Admin({ theme, onToggleTheme }) {
     } finally {
       setSavingNetwork(false);
     }
+  }
+  async function saveNetworkRestriction(event) {
+    event.preventDefault();
+    const ranges = networkRanges
+      .split(",")
+      .map((range) => range.trim())
+      .filter(Boolean);
+    await persistNetworkRanges(ranges);
   }
   useEffect(() => {
     load();
@@ -712,6 +715,9 @@ function Admin({ theme, onToggleTheme }) {
           <summary>Settings</summary>
           <section>
             <h2>Authorized Network</h2>
+            <p className="muted">
+              Saved authorized IP / CIDR: {savedNetworkRanges || "None"}
+            </p>
             <form onSubmit={saveNetworkRestriction}>
               <label>
                 IP / CIDR
@@ -719,12 +725,20 @@ function Admin({ theme, onToggleTheme }) {
                   type="text"
                   value={networkRanges}
                   onChange={(event) => setNetworkRanges(event.target.value)}
-                  placeholder="203.0.113.10/32, 2001:db8::/32"
+                  placeholder="Public IPv4 or IPv6 address / CIDR"
                   aria-describedby="network-restriction-status"
                 />
               </label>
               <button type="submit" disabled={savingNetwork}>
                 {savingNetwork ? "Saving…" : "Save network"}
+              </button>
+              <button
+                type="button"
+                className="secondary"
+                disabled={!networkConfigured || savingNetwork}
+                onClick={() => persistNetworkRanges([])}
+              >
+                Delete authorized network
               </button>
             </form>
             <p
