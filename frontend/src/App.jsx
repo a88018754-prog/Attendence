@@ -398,6 +398,8 @@ function Student({ theme, onToggleTheme }) {
   const user = getUser(),
     [history, setHistory] = useState([]),
     [msg, setMsg] = useState(""),
+    [demoMode, setDemoMode] = useState(false),
+    [demoClientIp, setDemoClientIp] = useState(""),
     [busy, setBusy] = useState(false),
     video = useRef(null),
     stream = useRef(null);
@@ -406,6 +408,14 @@ function Student({ theme, onToggleTheme }) {
       .get("/attendance/mine")
       .then((r) => setHistory(r.data))
       .catch(() => {});
+    api
+      .get("/attendance/demo-mode")
+      .then(({ data }) => setDemoMode(data.enabled))
+      .catch((error) =>
+        setMsg(
+          error.response?.data?.message || "Unable to load attendance mode.",
+        ),
+      );
     return () => {
       stopStream(stream.current);
       stream.current = null;
@@ -425,6 +435,7 @@ function Student({ theme, onToggleTheme }) {
       const descriptor = await captureFaceDescriptor(video.current);
       const { data } = await api.post("/attendance/mark", {
         descriptor,
+        ...(demoMode && { demoClientIp: demoClientIp.trim() }),
       });
       setMsg(data.message);
       const h = await api.get("/attendance/mine");
@@ -460,12 +471,31 @@ function Student({ theme, onToggleTheme }) {
         <p className="muted">
           {user.studentId} · {user.course}
         </p>
+        {demoMode && (
+          <p className="notice demo-notice" role="alert">
+            STAGING DEMO ONLY: IPs are simulated. Use the saved authorized IP
+            to simulate Wi-Fi, or a different public IP to simulate another
+            network. Demo records go only to the isolated staging database.
+          </p>
+        )}
         <section className="panel mark">
           <div>
             <h2>Today's attendance</h2>
             <p className="muted">
               Connect to institute Wi-Fi, then verify your face.
             </p>
+            {demoMode && (
+              <label>
+                Simulated public IP
+                <input
+                  type="text"
+                  value={demoClientIp}
+                  onChange={(event) => setDemoClientIp(event.target.value)}
+                  placeholder="Authorized IP to allow; different IP to reject"
+                  autoComplete="off"
+                />
+              </label>
+            )}
             <button onClick={mark} disabled={busy}>
               {busy ? "Verifying…" : "Mark attendance with face"}
             </button>
@@ -603,6 +633,7 @@ function Records({ rows, ipLabel = "IP address" }) {
                 <span className={"pill " + r.status.toLowerCase()}>
                   {r.status}
                 </span>
+                {r.demo && <span className="demo-tag">DEMO</span>}
               </td>
               <td>
                 {r.markedAt ? new Date(r.markedAt).toLocaleTimeString() : "—"}
@@ -623,6 +654,7 @@ function Admin({ theme, onToggleTheme }) {
     [networkRanges, setNetworkRanges] = useState(""),
     [savedNetworkRanges, setSavedNetworkRanges] = useState(""),
     [networkConfigured, setNetworkConfigured] = useState(false),
+    [demoMode, setDemoMode] = useState(false),
     [networkMessage, setNetworkMessage] = useState(""),
     [savingNetwork, setSavingNetwork] = useState(false);
   async function load() {
@@ -683,6 +715,12 @@ function Admin({ theme, onToggleTheme }) {
   useEffect(() => {
     load();
     loadNetworkRestriction();
+    api
+      .get("/attendance/demo-mode")
+      .then(({ data }) => setDemoMode(data.enabled))
+      .catch((e) =>
+        setErr(e.response?.data?.message || "Unable to load attendance mode"),
+      );
     socket.connect();
     socket.on("attendance:marked", load);
     return () => {
@@ -710,6 +748,12 @@ function Admin({ theme, onToggleTheme }) {
         <p className="muted">
           Live campus attendance · {summary?.date || "Loading…"}
         </p>
+        {demoMode && (
+          <p className="notice demo-notice" role="alert">
+            STAGING DEMO ONLY: attendance records and simulated IP checks are
+            isolated from production.
+          </p>
+        )}
         {err && <p className="notice">{err}</p>}
         <details className="panel">
           <summary>Settings</summary>
@@ -749,7 +793,7 @@ function Admin({ theme, onToggleTheme }) {
               {networkMessage ||
                 (networkConfigured
                   ? "Students can mark attendance only from the saved network."
-                  : "No authorized network is configured; attendance is currently denied.")}
+                  : "No authorized network is configured; attendance can be marked without IP verification.")}
             </p>
           </section>
         </details>

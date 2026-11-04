@@ -4,6 +4,7 @@ const attendanceSchema = new mongoose.Schema({
   studentId: { type: String, required: true },
   date: { type: String, required: true },
   clientIp: { type: String, default: '' },
+  demo: { type: Boolean, default: false },
   status: { type: String, enum: ['Present', 'Late', 'Absent'], required: true },
   markedAt: { type: Date, default: Date.now }
 }, { timestamps: true });

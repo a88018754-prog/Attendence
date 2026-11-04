@@ -15,8 +15,14 @@ if (!process.env.JWT_SECRET) {
     "JWT_SECRET is required. Add a strong secret to backend/.env before starting the server.",
   );
 }
+const attendanceDemoSetting = process.env.ATTENDANCE_DEMO_MODE || "false";
+if (!["true", "false"].includes(attendanceDemoSetting)) {
+  throw new Error("ATTENDANCE_DEMO_MODE must be true or false.");
+}
+const attendanceDemoMode = attendanceDemoSetting === "true";
 const app = express();
 const server = http.createServer(app);
+app.locals.attendanceDemoMode = attendanceDemoMode;
 const clientUrl = process.env.CLIENT_URL || "http://localhost:5173";
 const clientOrigins = [clientUrl];
 try {
@@ -150,6 +156,14 @@ const port = process.env.PORT || 5000;
 mongoose
   .connect(process.env.MONGO_URI)
   .then(async () => {
+    if (
+      attendanceDemoMode &&
+      !mongoose.connection.name.toLowerCase().endsWith("-demo")
+    ) {
+      throw new Error(
+        "ATTENDANCE_DEMO_MODE requires a dedicated MongoDB database name ending in -demo.",
+      );
+    }
     await seedAdmin();
     await seedDemoStudent();
     server.listen(port, () =>
@@ -157,6 +171,6 @@ mongoose
     );
   })
   .catch((e) => {
-    console.error("MongoDB connection failed:", e.message);
+    console.error("Backend startup failed:", e.message);
     process.exit(1);
   });

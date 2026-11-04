@@ -104,18 +104,64 @@ router.put('/admin/network-restriction', auth, adminOnly, async (req, res) => {
   }
 });
 
+router.get('/demo-mode', auth, (req, res) => {
+  res.json({ enabled: Boolean(req.app.locals.attendanceDemoMode) });
+});
+
 router.post('/mark', auth, async (req, res) => {
+  let clientIp = '';
   try {
-    const clientDetection = getPublicClientIp(req);
-    const clientIp = clientDetection.ip;
+    const demoMode = Boolean(req.app.locals.attendanceDemoMode);
     const networkConfig = await NetworkRestriction.findById(NETWORK_RESTRICTION_ID)
       .select('ranges')
       .lean();
     const allowedRanges = networkConfig?.ranges || [];
+    let clientDetection = {
+      ip: null,
+      detectedIp: null,
+      reason: allowedRanges.length ? 'unavailable' : 'not-required',
+    };
+
+    if (allowedRanges.length && demoMode) {
+      const simulatedIp = req.body?.demoClientIp;
+      if (typeof simulatedIp !== 'string' || !isIP(simulatedIp)) {
+        return res.status(400).json({
+          message: 'Enter a valid public IP address for the staging demo.',
+        });
+      }
+      try {
+        const simulatedAddress = ipaddr.process(simulatedIp);
+        if (simulatedAddress.range() !== 'unicast') {
+          return res.status(400).json({
+            message: 'The staging demo requires a public IP address.',
+          });
+        }
+        clientIp = simulatedAddress.toString();
+        clientDetection = {
+          ip: clientIp,
+          detectedIp: clientIp,
+          reason: null,
+        };
+      } catch {
+        return res.status(400).json({
+          message: 'Enter a valid public IP address for the staging demo.',
+        });
+      }
+    } else if (allowedRanges.length) {
+      clientDetection = getPublicClientIp(req);
+      clientIp = clientDetection.ip;
+    }
     const networkMatched = Boolean(
-      clientIp && allowedRanges.length && ipRangeCheck(clientIp, allowedRanges),
+      !allowedRanges.length ||
+        (clientDetection.ip && ipRangeCheck(clientIp, allowedRanges)),
     );
     console.info('[attendance-network-check]', JSON.stringify({
+      mode: demoMode
+        ? allowedRanges.length
+          ? 'staging-demo-simulated'
+          : 'staging-demo-unrestricted'
+        : 'production',
+      networkRestrictionConfigured: allowedRanges.length > 0,
       detectedIp: clientDetection.detectedIp,
       clientIp: clientIp || null,
       clientIpVersion: clientIp ? ipaddr.parse(clientIp).kind() : null,
@@ -128,15 +174,10 @@ router.post('/mark', auth, async (req, res) => {
       authorizedRanges: allowedRanges,
       matched: networkMatched,
     }));
-    if (!allowedRanges.length) {
-      return res.status(503).json({
-        message: 'Authorized QLeap network has not been configured. Contact an administrator.',
-      });
-    }
-    if (!clientIp) {
+    if (allowedRanges.length && !clientIp) {
       return res.status(503).json({ message: IP_DETECTION_FAILURE_MESSAGE });
     }
-    if (!networkMatched) {
+    if (allowedRanges.length && !networkMatched) {
       return res.status(403).json({
         message: 'Attendance is not allowed from this network.',
       });
@@ -151,7 +192,14 @@ router.post('/mark', auth, async (req, res) => {
     const date = dateKey();
     let record = await Attendance.findOneAndUpdate(
       { student: student._id, date, status: 'Absent' },
-      { $set: { status, clientIp, markedAt: new Date() } },
+      {
+        $set: {
+          status,
+          clientIp,
+          markedAt: new Date(),
+          ...(demoMode && { demo: true }),
+        },
+      },
       { new: true },
     );
     if (!record) {
@@ -166,13 +214,24 @@ router.post('/mark', auth, async (req, res) => {
           attendance: existing,
         });
       }
-      record = await Attendance.create({ student: student._id, studentId: student.studentId, date, status, clientIp });
+      record = await Attendance.create({
+        student: student._id,
+        studentId: student.studentId,
+        date,
+        status,
+        clientIp,
+        demo: demoMode,
+      });
     }
     req.app.get('io').emit('attendance:marked', { studentName: student.name, studentId: student.studentId, status, date: record.date, markedAt: record.markedAt });
-    res.status(201).json({ message: 'Attendance marked successfully.', attendance: record });
+    res.status(201).json({
+      message: demoMode
+        ? 'DEMO ONLY: simulated attendance marked in the staging database.'
+        : 'Attendance marked successfully.',
+      attendance: record,
+    });
   } catch (e) {
     if (e.code === 11000) {
-      const clientIp = clientIpFor(req);
       const attendance = await Attendance.findOneAndUpdate(
         { student: req.user.id, date: dateKey() },
         { $set: { clientIp } },
