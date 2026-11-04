@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { isIP } from 'node:net';
 import ipRangeCheck from 'ip-range-check';
 import requestIp from 'request-ip';
 import Student from '../models/Student.js';
@@ -7,6 +8,30 @@ import { auth, adminOnly } from '../middleware/auth.js';
 const router = Router();
 const dateKey = () => new Intl.DateTimeFormat('en-CA', { timeZone: process.env.ATTENDANCE_TIMEZONE || 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 const timeParts = () => new Intl.DateTimeFormat('en-GB', { timeZone: process.env.ATTENDANCE_TIMEZONE || 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date()).split(':').map(Number);
+function maskIpAddress(ip) {
+  const address = ip?.replace(/^::ffff:/, '');
+  const version = address && isIP(address);
+  if (version === 4) {
+    const octets = address.split('.');
+    octets[3] = 'xxx';
+    return octets.join('.');
+  }
+  if (version === 6) {
+    const halves = address.split('::');
+    const left = halves[0] ? halves[0].split(':') : [];
+    const right = halves[1] ? halves[1].split(':') : [];
+    const groups = halves.length === 2
+      ? [...left, ...Array(8 - left.length - right.length).fill('0'), ...right]
+      : left;
+    const prefix = groups.slice(0, 3).map(group => parseInt(group, 16).toString(16));
+    return prefix.every(group => group === '0') ? '::…' : `${prefix.join(':')}:…`;
+  }
+  return ip ? 'Unknown' : '';
+}
+function attendanceForStudent(record) {
+  const attendance = record.toObject ? record.toObject() : record;
+  return { ...attendance, clientIp: maskIpAddress(attendance.clientIp) };
+}
 router.post('/mark', auth, async (req, res) => {
   try {
     const clientIp = requestIp.getClientIp(req)?.replace('::ffff:', '');
@@ -37,13 +62,13 @@ router.post('/mark', auth, async (req, res) => {
       if (existing) {
         return res.status(409).json({
           message: 'Attendance already recorded for today',
-          attendance: existing,
+          attendance: attendanceForStudent(existing),
         });
       }
       record = await Attendance.create({ student: student._id, studentId: student.studentId, date, status, clientIp });
     }
     req.app.get('io').emit('attendance:marked', { studentName: student.name, studentId: student.studentId, status, date: record.date, markedAt: record.markedAt });
-    res.status(201).json({ message: `Face detected. Attendance marked successfully as ${status}.`, attendance: record });
+    res.status(201).json({ message: `Face detected. Attendance marked successfully as ${status}.`, attendance: attendanceForStudent(record) });
   } catch (e) {
     if (e.code === 11000) {
       const clientIp = requestIp.getClientIp(req)?.replace('::ffff:', '');
@@ -54,13 +79,16 @@ router.post('/mark', auth, async (req, res) => {
       );
       return res.status(409).json({
         message: 'Attendance already recorded for today',
-        ...(attendance && { attendance }),
+        ...(attendance && { attendance: attendanceForStudent(attendance) }),
       });
     }
     res.status(409).json({ message: e.message });
   }
 });
-router.get('/mine', auth, async (req, res) => res.json(await Attendance.find({ student: req.user.id }).sort({ date: -1 })));
+router.get('/mine', auth, async (req, res) => {
+  const records = await Attendance.find({ student: req.user.id }).sort({ date: -1 }).lean();
+  res.json(records.map(attendanceForStudent));
+});
 router.get('/admin/summary', auth, adminOnly, async (req, res) => {
   const date = req.query.date || dateKey();
   const students = await Student.countDocuments({ role: 'student' });

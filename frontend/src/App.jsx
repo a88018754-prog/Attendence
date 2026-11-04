@@ -437,13 +437,13 @@ function Student() {
         </section>
         <section className="panel">
           <h2>Attendance history</h2>
-          <Records rows={history} />
+          <Records rows={history} ipLabel="IP address (masked)" />
         </section>
       </main>
     </>
   );
 }
-function Records({ rows }) {
+function Records({ rows, ipLabel = "IP address" }) {
   return (
     <div className="tablewrap">
       <table>
@@ -452,7 +452,7 @@ function Records({ rows }) {
             <th>Date</th>
             <th>Status</th>
             <th>Marked at</th>
-            <th>IP address</th>
+            <th>{ipLabel}</th>
           </tr>
         </thead>
         <tbody>
