@@ -59,18 +59,19 @@ Download the matching model files from the face-api.js project's official weight
 ## Important limitations / before real deployment
 
 - This is an educational MVP, not production biometric software. Use consent, retention rules, secure transport, access controls, and a privacy review before using real student biometrics.
+- The `ALLOWED_IP_RANGE` setting is optional. When unset or blank, requests from any network pass the IP gate; when configured with one or more comma-separated IP/CIDR ranges, the backend enforces them. Face verification and authentication remain required in either mode.
 - IP checks use Express's resolved client IP, not arbitrary client-supplied forwarding headers. `TRUST_PROXY_HOPS` defaults to `0`; set it to the exact number of trusted reverse proxies in front of the backend (for the Render web service's single ingress proxy, use `1`). Never use `true` or a hop count that exceeds the real proxy chain.
 - Browser-based face descriptors are not liveness detection; a photo/video spoof may be possible. Add liveness checks and review false-accept/false-reject thresholds for production.
 - Admin account credentials are seeded from environment variables. Change the sample password immediately.
 - Attendance can be marked throughout the day: before 9:30 AM is `Present`, and from 9:30 AM onward is `Late`. The 10:30 AM absent job uses the configured timezone; a later successful face verification updates that day's `Absent` entry to `Late`. For reliable deployment, use a single scheduler/worker and monitor job execution.
 - `Attendance` has a unique index on student + date to prevent duplicates.
-- Set `ALLOWED_IP_RANGE` to the institute's public egress IP/CIDR in deployment. The loopback example only allows requests made directly from the same computer and does not authorize campus users connecting to a deployed backend. Set `TRUST_PROXY_HOPS` to the verified proxy-chain length; Render's single ingress proxy uses `1`. The private example range `192.168.0.0/24` will not match a request sent over the public internet unless the backend is on the institute LAN/VPN.
+- For institute-only deployments, set `ALLOWED_IP_RANGE` to the institute's public egress IP/CIDR. The private example range `192.168.0.0/24` will not match a request sent over the public internet unless the backend is on the institute LAN/VPN. Set `TRUST_PROXY_HOPS` to the verified proxy-chain length; Render's single ingress proxy uses `1`.
 
 ## API overview
 
 - `POST /api/auth/register` — student registration with 128-value face descriptor
 - `POST /api/auth/login` — student/admin login
-- `POST /api/attendance/mark` — authenticated face match, IP and time validation
+- `POST /api/attendance/mark` — authenticated face match, optional configured IP-range validation, and attendance status rules
 - `GET /api/attendance/mine` — student's attendance history, including the recorded IP address
 - `GET /api/attendance/my-ip` — authenticated IP address seen by the attendance server
 - `GET /api/attendance/admin/summary` — admin daily statistics and records
