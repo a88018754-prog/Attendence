@@ -16,7 +16,8 @@ router.post('/register', async (req, res) => {
 });
 router.post('/login', async (req, res) => {
   const { email, password } = req.body;
-  const user = await Student.findOne({ email: email?.toLowerCase() });
+  const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
+  const user = await Student.findOne({ email: normalizedEmail });
   if (!user || !(await bcrypt.compare(password || '', user.passwordHash))) return res.status(401).json({ message: 'Invalid email or password' });
   res.json({ token: tokenFor(user), user: { id: user._id, name: user.name, email: user.email, studentId: user.studentId, course: user.course, role: user.role } });
 });

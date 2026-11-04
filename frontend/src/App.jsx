@@ -666,7 +666,7 @@ function Admin({ theme, onToggleTheme }) {
       setNetworkConfigured(data.configured);
       setNetworkMessage(
         data.configured
-          ? "Authorized network saved."
+          ? "Authorized network saved and will be used for attendance checks."
           : "No network is configured. Attendance is denied until one is saved.",
       );
     } catch (e) {
