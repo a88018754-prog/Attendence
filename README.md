@@ -60,7 +60,7 @@ Download the matching model files from the face-api.js project's official weight
 
 - This is an educational MVP, not production biometric software. Use consent, retention rules, secure transport, access controls, and a privacy review before using real student biometrics.
 - An administrator configures the authorized QLeap network in the admin panel. The backend stores the IP/CIDR ranges in MongoDB and enforces them for every attendance request. If no range is configured, attendance is denied; authentication and face verification remain required.
-- IP checks use Express's resolved client IP, not arbitrary client-supplied forwarding headers. Render defaults to two trusted proxy hops; set `TRUST_PROXY_HOPS=2` in the Render backend environment for the public ingress and internal proxy chain. The setting is configurable from 0 to 5 and must match the actual hosting proxy chain; do not increase it without verifying Render logs. Local development defaults to 0. Attendance network checks log the resolved IP, trusted proxy chain, configured ranges, and match result without logging request credentials.
+- IP checks use Express's resolved client IP, not arbitrary client-supplied forwarding headers. Proxy trust defaults to `0` locally and is fixed at one trusted public ingress hop on Render. A `TRUST_PROXY_HOPS` value set in Render is ignored to prevent trusting extra client-controlled forwarding entries. Attendance network checks log the resolved IP, trusted proxy chain, configured ranges, and match result without logging request credentials.
 - Browser-based face descriptors are not liveness detection; a photo/video spoof may be possible. Add liveness checks and review false-accept/false-reject thresholds for production.
 - Admin account credentials are seeded from environment variables. Change the sample password immediately.
 - Attendance can be marked throughout the day: before 9:30 AM is `Present`, and from 9:30 AM onward is `Late`. The 10:30 AM absent job uses the configured timezone; a later successful face verification updates that day's `Absent` entry to `Late`. For reliable deployment, use a single scheduler/worker and monitor job execution.
@@ -71,7 +71,7 @@ Download the matching model files from the face-api.js project's official weight
 
 - `POST /api/auth/register` — student registration with 128-value face descriptor
 - `POST /api/auth/login` — student/admin login
-- `POST /api/attendance/mark` — authenticated face match, optional configured IP-range validation, and attendance status rules
+- `POST /api/attendance/mark` — authenticated face match, required configured IP-range validation, and attendance status rules
 - `GET /api/attendance/mine` — student's attendance history, including the recorded IP address
 - `GET /api/attendance/my-ip` — authenticated IP address seen by the attendance server
 - `GET /api/attendance/admin/summary` — admin daily statistics and records

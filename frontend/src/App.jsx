@@ -390,6 +390,7 @@ function Student() {
       setHistory(h.data);
     } catch (e) {
       const { message, clientIp, attendance } = e.response?.data || {};
+      const status = e.response?.status;
       if (attendance) {
         setHistory((records) => [
           attendance,
@@ -397,9 +398,8 @@ function Student() {
         ]);
       }
       setMsg(
-        message === "Attendance is only allowed when connected to institute WiFi" &&
-          clientIp
-          ? `${message} Detected IP: ${clientIp}. Add the institute's public IP/CIDR to ALLOWED_IP_RANGE in Render.`
+        status === 403 && clientIp
+          ? `${message} The attendance server sees your IP as ${clientIp}. Ask an administrator to compare it with the Authorized Network saved in the admin panel.`
           : message ||
               cameraErrorMessage(e) ||
               "Face verification failed. Please try again.",

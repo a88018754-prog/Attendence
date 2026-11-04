@@ -35,16 +35,22 @@ try {
 }
 const proxyHopsSetting = process.env.TRUST_PROXY_HOPS?.trim();
 const isRender = process.env.RENDER === "true";
-const defaultProxyHops = isRender ? 2 : 0;
-const trustedProxyHops = proxyHopsSetting
-  ? Number(proxyHopsSetting)
-  : defaultProxyHops;
+const trustedProxyHops = isRender
+  ? 1
+  : proxyHopsSetting
+    ? Number(proxyHopsSetting)
+    : 0;
 if (
   !Number.isInteger(trustedProxyHops) ||
   trustedProxyHops < 0 ||
   trustedProxyHops > 5
 ) {
   throw new Error("TRUST_PROXY_HOPS must be an integer from 0 to 5.");
+}
+if (isRender && proxyHopsSetting && Number(proxyHopsSetting) !== 1) {
+  console.warn(
+    "Ignoring TRUST_PROXY_HOPS on Render; the public ingress proxy is configured as one trusted hop.",
+  );
 }
 app.set("trust proxy", trustedProxyHops);
 const io = new Server(server, {
