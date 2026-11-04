@@ -389,10 +389,14 @@ function Student() {
       const h = await api.get("/attendance/mine");
       setHistory(h.data);
     } catch (e) {
+      const { message, clientIp } = e.response?.data || {};
       setMsg(
-        e.response?.data?.message ||
-          cameraErrorMessage(e) ||
-          "Face verification failed. Please try again.",
+        message === "Attendance is only allowed when connected to institute Wi-Fi" &&
+          clientIp
+          ? `${message}. Detected IP: ${clientIp}. If you are on institute Wi-Fi, ask the administrator to add this public IP to the backend ALLOWED_IP_RANGE.`
+          : message ||
+              cameraErrorMessage(e) ||
+              "Face verification failed. Please try again.",
       );
     } finally {
       stopStream(cameraStream);
