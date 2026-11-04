@@ -71,7 +71,7 @@ Download the matching model files from the face-api.js project's official weight
 - `POST /api/auth/register` — student registration with 128-value face descriptor
 - `POST /api/auth/login` — student/admin login
 - `POST /api/attendance/mark` — authenticated face match, IP and time validation
-- `GET /api/attendance/mine` — student's attendance history, with the IP address masked for privacy
+- `GET /api/attendance/mine` — student's attendance history, including the recorded IP address
 - `GET /api/attendance/admin/summary` — admin daily statistics and records
 - `GET /api/attendance/admin/students` — admin student list
 - `GET /api/attendance/admin/export` — admin CSV export, including the full recorded IP address

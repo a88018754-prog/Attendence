@@ -437,7 +437,7 @@ function Student() {
         </section>
         <section className="panel">
           <h2>Attendance history</h2>
-          <Records rows={history} ipLabel="IP address (masked)" />
+          <Records rows={history} />
         </section>
       </main>
     </>
