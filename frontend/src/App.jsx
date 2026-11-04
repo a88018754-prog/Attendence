@@ -6,6 +6,125 @@ import api from "./api";
 const socket = io(import.meta.env.VITE_API_URL || "http://localhost:5000", {
   autoConnect: false,
 });
+let faceModelsPromise;
+
+function loadFaceModels() {
+  if (!faceModelsPromise) {
+    faceModelsPromise = Promise.all([
+      faceapi.nets.tinyFaceDetector.loadFromUri("/models"),
+      faceapi.nets.faceLandmark68Net.loadFromUri("/models"),
+      faceapi.nets.faceRecognitionNet.loadFromUri("/models"),
+    ]).catch((error) => {
+      faceModelsPromise = null;
+      throw new Error(
+        `Could not load face recognition models from /models. ${error.message}`,
+      );
+    });
+  }
+  return faceModelsPromise;
+}
+
+function requestCamera() {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    throw new Error("Camera access requires HTTPS or localhost.");
+  }
+  return navigator.mediaDevices.getUserMedia({
+    audio: false,
+    video: {
+      facingMode: { ideal: "user" },
+      width: { ideal: 640 },
+      height: { ideal: 480 },
+    },
+  });
+}
+
+function waitForVideo(videoElement) {
+  if (videoElement.readyState >= 2 && videoElement.videoWidth > 0) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve, reject) => {
+    let timeoutId;
+    const cleanup = () => {
+      clearTimeout(timeoutId);
+      videoElement.removeEventListener("loadeddata", checkReady);
+      videoElement.removeEventListener("playing", checkReady);
+      videoElement.removeEventListener("error", handleError);
+    };
+    const checkReady = () => {
+      if (videoElement.readyState >= 2 && videoElement.videoWidth > 0) {
+        cleanup();
+        resolve();
+      }
+    };
+    const handleError = () => {
+      cleanup();
+      reject(new Error("The camera preview could not be started."));
+    };
+
+    timeoutId = setTimeout(() => {
+      cleanup();
+      reject(new Error("Camera did not start. Check camera permission and try again."));
+    }, 10000);
+    videoElement.addEventListener("loadeddata", checkReady);
+    videoElement.addEventListener("playing", checkReady);
+    videoElement.addEventListener("error", handleError);
+    checkReady();
+  });
+}
+
+function cameraErrorMessage(error) {
+  if (error.name === "NotAllowedError" || error.name === "PermissionDeniedError") {
+    return "Allow camera access in your browser settings, then try again.";
+  }
+  if (error.name === "NotFoundError" || error.name === "DevicesNotFoundError") {
+    return "No camera was found. Connect a camera and try again.";
+  }
+  if (error.name === "NotReadableError" || error.name === "TrackStartError") {
+    return "The camera is already in use by another app. Close it and try again.";
+  }
+  return error.message || "Could not start the camera.";
+}
+
+function stopStream(mediaStream) {
+  mediaStream?.getTracks().forEach((track) => track.stop());
+}
+
+async function captureFaceDescriptor(videoElement) {
+  await loadFaceModels();
+  const options = new faceapi.TinyFaceDetectorOptions({
+    inputSize: 416,
+    scoreThreshold: 0.4,
+  });
+  const samples = [];
+
+  for (let attempt = 0; attempt < 5 && samples.length < 3; attempt += 1) {
+    const detections = await faceapi
+      .detectAllFaces(videoElement, options)
+      .withFaceLandmarks()
+      .withFaceDescriptors();
+
+    if (detections.length > 1) {
+      throw new Error("More than one face detected. Make sure only you are in view.");
+    }
+    if (detections.length === 1) {
+      samples.push(Array.from(detections[0].descriptor));
+    }
+    if (samples.length < 3) {
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    }
+  }
+
+  if (!samples.length) {
+    throw new Error("No clear face detected. Face the camera in good lighting and try again.");
+  }
+
+  return samples[0].map(
+    (_, index) =>
+      samples.reduce((sum, sample) => sum + sample[index], 0) / samples.length,
+  );
+}
+
 function getUser() {
   try {
     return JSON.parse(localStorage.getItem("user"));
@@ -62,43 +181,64 @@ function Auth({ register = false }) {
     }),
     [face, setFace] = useState(null),
     [error, setError] = useState(""),
-    [busy, setBusy] = useState(false);
+    [busy, setBusy] = useState(false),
+    [capturing, setCapturing] = useState(false),
+    [cameraReady, setCameraReady] = useState(false);
   const video = useRef(null),
     stream = useRef(null),
     nav = useNavigate();
   useEffect(() => {
-    if (register) startCamera();
-    return () => stream.current?.getTracks().forEach((t) => t.stop());
-  }, []);
-  async function startCamera() {
-    try {
-      stream.current = await navigator.mediaDevices.getUserMedia({
-        video: true,
-      });
-      if (video.current) video.current.srcObject = stream.current;
-    } catch {
-      setError("Please allow camera access to register your face.");
-    }
-  }
-  async function capture() {
-    try {
-      await faceapi.nets.tinyFaceDetector.loadFromUri("/models");
-      await faceapi.nets.faceLandmark68Net.loadFromUri("/models");
-      await faceapi.nets.faceRecognitionNet.loadFromUri("/models");
-      const result = await faceapi
-        .detectSingleFace(video.current, new faceapi.TinyFaceDetectorOptions())
-        .withFaceLandmarks()
-        .withFaceDescriptor();
-      if (!result) {
-        setError("No face detected. Face the camera and try again.");
-        return;
+    if (!register) return undefined;
+    let active = true;
+    let cameraStream;
+    const videoElement = video.current;
+
+    async function startCamera() {
+      try {
+        cameraStream = await requestCamera();
+        if (!active) {
+          stopStream(cameraStream);
+          return;
+        }
+        videoElement.srcObject = cameraStream;
+        await videoElement.play();
+        await waitForVideo(videoElement);
+        if (active) {
+          stream.current = cameraStream;
+          setCameraReady(true);
+          setError("");
+        }
+      } catch (cameraError) {
+        stopStream(cameraStream);
+        if (active) {
+          setCameraReady(false);
+          setError(cameraErrorMessage(cameraError));
+        }
       }
-      setFace(Array.from(result.descriptor));
+    }
+
+    startCamera();
+    return () => {
+      active = false;
+      stopStream(cameraStream);
+      if (stream.current === cameraStream) stream.current = null;
+      if (videoElement?.srcObject === cameraStream) {
+        videoElement.srcObject = null;
+      }
+    };
+  }, [register]);
+
+  async function capture() {
+    setCapturing(true);
+    setError("");
+    try {
+      const descriptor = await captureFaceDescriptor(video.current);
+      setFace(descriptor);
       setError("Face captured successfully.");
-    } catch {
-      setError(
-        "Face models missing. Follow README to add face-api model files.",
-      );
+    } catch (captureError) {
+      setError(captureError.message || "Face capture failed. Please try again.");
+    } finally {
+      setCapturing(false);
     }
   }
   async function submit(e) {
@@ -181,15 +321,24 @@ function Auth({ register = false }) {
           {register && (
             <div className="camera">
               <video ref={video} autoPlay muted playsInline />
-              <button type="button" className="secondary" onClick={capture}>
-                Capture face
+              <button
+                type="button"
+                className="secondary"
+                onClick={capture}
+                disabled={!cameraReady || capturing}
+              >
+                {capturing ? "Capturing…" : "Capture face"}
               </button>
               <span className="muted">
-                {face ? "Face ready ✓" : "One face, good lighting"}
+                {face
+                  ? "Face ready ✓"
+                  : cameraReady
+                    ? "Look at the camera in good lighting"
+                    : "Starting camera…"}
               </span>
             </div>
           )}
-          {error && <p className="notice">{error}</p>}
+          {error && <p className="notice" role="status">{error}</p>}
           <button disabled={busy || (register && !face)}>
             {busy ? "Please wait…" : register ? "Create account" : "Sign in"}
           </button>
@@ -216,38 +365,41 @@ function Student() {
       .get("/attendance/mine")
       .then((r) => setHistory(r.data))
       .catch(() => {});
-    return () => stream.current?.getTracks().forEach((t) => t.stop());
+    return () => {
+      stopStream(stream.current);
+      stream.current = null;
+      if (video.current) video.current.srcObject = null;
+    };
   }, []);
   async function mark() {
     setMsg("");
     setBusy(true);
+    let cameraStream;
     try {
-      stream.current = await navigator.mediaDevices.getUserMedia({
-        video: true,
-      });
-      video.current.srcObject = stream.current;
-      await new Promise((r) => setTimeout(r, 700));
-      await faceapi.nets.tinyFaceDetector.loadFromUri("/models");
-      await faceapi.nets.faceLandmark68Net.loadFromUri("/models");
-      await faceapi.nets.faceRecognitionNet.loadFromUri("/models");
-      const d = await faceapi
-        .detectSingleFace(video.current, new faceapi.TinyFaceDetectorOptions())
-        .withFaceLandmarks()
-        .withFaceDescriptor();
-      if (!d) {
-        setMsg("No face detected. Please try again.");
-        return;
-      }
+      cameraStream = await requestCamera();
+      stream.current = cameraStream;
+      video.current.srcObject = cameraStream;
+      await video.current.play();
+      await waitForVideo(video.current);
+      const descriptor = await captureFaceDescriptor(video.current);
       const { data } = await api.post("/attendance/mark", {
-        descriptor: Array.from(d.descriptor),
+        descriptor,
       });
       setMsg(data.message);
       const h = await api.get("/attendance/mine");
       setHistory(h.data);
     } catch (e) {
-      setMsg(e.response?.data?.message || "Camera or face model error.");
+      setMsg(
+        e.response?.data?.message ||
+          cameraErrorMessage(e) ||
+          "Face verification failed. Please try again.",
+      );
     } finally {
-      stream.current?.getTracks().forEach((t) => t.stop());
+      stopStream(cameraStream);
+      if (stream.current === cameraStream) stream.current = null;
+      if (video.current?.srcObject === cameraStream) {
+        video.current.srcObject = null;
+      }
       setBusy(false);
     }
   }
@@ -290,6 +442,7 @@ function Records({ rows }) {
             <th>Date</th>
             <th>Status</th>
             <th>Marked at</th>
+            <th>IP address</th>
           </tr>
         </thead>
         <tbody>
@@ -304,6 +457,7 @@ function Records({ rows }) {
               <td>
                 {r.markedAt ? new Date(r.markedAt).toLocaleTimeString() : "—"}
               </td>
+              <td>{r.clientIp || "—"}</td>
             </tr>
           ))}
         </tbody>

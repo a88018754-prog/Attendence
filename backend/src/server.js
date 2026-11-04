@@ -10,6 +10,11 @@ import Student from "./models/Student.js";
 import Attendance from "./models/Attendance.js";
 import authRoutes from "./routes/auth.js";
 import attendanceRoutes from "./routes/attendance.js";
+if (!process.env.JWT_SECRET) {
+  throw new Error(
+    "JWT_SECRET is required. Add a strong secret to backend/.env before starting the server.",
+  );
+}
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {

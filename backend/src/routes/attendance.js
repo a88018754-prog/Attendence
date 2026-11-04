@@ -10,17 +10,24 @@ const timeParts = () => new Intl.DateTimeFormat('en-GB', { timeZone: process.env
 router.post('/mark', auth, async (req, res) => {
   try {
     const clientIp = requestIp.getClientIp(req)?.replace('::ffff:', '');
-    const allowedRange = process.env.ALLOWED_IP_RANGE;
-    if (!allowedRange || !ipRangeCheck(clientIp, allowedRange)) return res.status(403).json({ message: 'Attendance is only allowed when connected to institute Wi-Fi', clientIp });
+    const allowedRanges = (process.env.ALLOWED_IP_RANGE || '')
+      .split(',')
+      .map(range => range.trim())
+      .filter(Boolean);
+    if (!clientIp || !allowedRanges.length || !ipRangeCheck(clientIp, allowedRanges)) return res.status(403).json({ message: 'Attendance is only allowed when connected to institute Wi-Fi', clientIp });
     const student = await Student.findById(req.user.id);
     const { descriptor } = req.body;
     if (!student || !Array.isArray(descriptor) || descriptor.length !== 128 || student.faceDescriptor.length !== 128) return res.status(400).json({ message: 'Face data unavailable. Register your face first.' });
     const distance = Math.sqrt(descriptor.reduce((sum, v, i) => sum + (v - student.faceDescriptor[i]) ** 2, 0));
     if (distance > 0.48) return res.status(401).json({ message: 'Face not recognized. Please try again.' });
     const [hour, minute] = timeParts(); const minutes = hour * 60 + minute;
-    if (minutes >= 600) return res.status(403).json({ message: 'Attendance is closed after 10:00 AM' });
     const status = minutes < 570 ? 'Present' : 'Late';
-    const record = await Attendance.create({ student: student._id, studentId: student.studentId, date: dateKey(), status });
+    const date = dateKey();
+    const record = await Attendance.findOneAndUpdate(
+      { student: student._id, date, status: 'Absent' },
+      { $set: { status, clientIp, markedAt: new Date() } },
+      { new: true },
+    ) || await Attendance.create({ student: student._id, studentId: student.studentId, date, status, clientIp });
     req.app.get('io').emit('attendance:marked', { studentName: student.name, studentId: student.studentId, status, date: record.date, markedAt: record.markedAt });
     res.status(201).json({ message: `Face detected. Attendance marked successfully as ${status}.`, attendance: record });
   } catch (e) { res.status(409).json({ message: e.code === 11000 ? 'Attendance already recorded for today' : e.message }); }
@@ -38,7 +45,7 @@ router.get('/admin/students', auth, adminOnly, async (req, res) => res.json(awai
 router.get('/admin/export', auth, adminOnly, async (req, res) => {
   const date = req.query.date || dateKey();
   const rows = await Attendance.find({ date }).populate('student', 'name email course');
-  const csv = ['Student ID,Name,Email,Course,Date,Status,Marked At', ...rows.map(r => [r.studentId, r.student?.name, r.student?.email, r.student?.course, r.date, r.status, r.markedAt.toISOString()].map(v => `"${String(v ?? '').replaceAll('"','""')}"`).join(','))].join('\n');
+  const csv = ['Student ID,Name,Email,Course,Date,Status,Marked At,IP Address', ...rows.map(r => [r.studentId, r.student?.name, r.student?.email, r.student?.course, r.date, r.status, r.markedAt.toISOString(), r.clientIp].map(v => `"${String(v ?? '').replaceAll('"','""')}"`).join(','))].join('\n');
   res.header('Content-Type', 'text/csv').attachment(`attendance-${date}.csv`).send(csv);
 });
 export default router;

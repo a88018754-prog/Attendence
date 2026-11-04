@@ -12,10 +12,10 @@ A full-stack assignment starter implementing student/admin login, face descripto
 
 ```bash
 cd backend
-cp .env.example .env
+copy .env.example .env
 ```
 
-Edit `.env`: set a strong `JWT_SECRET`, your MongoDB URI, admin credentials, and the institute's actual allowed IP/CIDR. The sample `192.168.0.0/24` is only an example and will not match every institute network.
+Generate a secret with `node -p "require('crypto').randomBytes(48).toString('base64url')"` and put it in `.env` as `JWT_SECRET`. Set your MongoDB URI and admin credentials. `ALLOWED_IP_RANGE=127.0.0.1/32,::1/128` permits only local requests for development; replace it with the institute's actual public egress IP/CIDR for deployment. Multiple IPv4/IPv6 ranges may be comma-separated. The server will refuse to start if `JWT_SECRET` is missing.
 
 Install and start:
 
@@ -62,16 +62,16 @@ Download the matching model files from the face-api.js project's official weight
 - IP checks must be configured with the institution's actual network range. Behind a reverse proxy, configure trusted proxies carefully; do not blindly trust client-supplied `X-Forwarded-For` headers.
 - Browser-based face descriptors are not liveness detection; a photo/video spoof may be possible. Add liveness checks and review false-accept/false-reject thresholds for production.
 - Admin account credentials are seeded from environment variables. Change the sample password immediately.
-- The absent job uses the configured timezone and runs at 10:30. For reliable deployment, use a single scheduler/worker and monitor job execution.
+- Attendance can be marked throughout the day: before 9:30 AM is `Present`, and from 9:30 AM onward is `Late`. The 10:30 AM absent job uses the configured timezone; a later successful face verification updates that day's `Absent` entry to `Late`. For reliable deployment, use a single scheduler/worker and monitor job execution.
 - `Attendance` has a unique index on student + date to prevent duplicates.
-- Set `ALLOWED_IP_RANGE` to your real range; local development may need a temporary local range or an explicit test-only bypass implemented securely. Do not deploy with a permissive bypass.
+- Set `ALLOWED_IP_RANGE` to the institute's public egress IP/CIDR in deployment. The loopback example only allows requests made directly from the same computer and does not authorize campus users connecting to a deployed backend. Behind a reverse proxy, configure trusted proxies carefully; do not blindly trust client-supplied `X-Forwarded-For` headers.
 
 ## API overview
 
 - `POST /api/auth/register` — student registration with 128-value face descriptor
 - `POST /api/auth/login` — student/admin login
 - `POST /api/attendance/mark` — authenticated face match, IP and time validation
-- `GET /api/attendance/mine` — student's attendance history
+- `GET /api/attendance/mine` — student's attendance history, including the IP address recorded when attendance was marked
 - `GET /api/attendance/admin/summary` — admin daily statistics and records
 - `GET /api/attendance/admin/students` — admin student list
-- `GET /api/attendance/admin/export` — admin CSV export
+- `GET /api/attendance/admin/export` — admin CSV export, including the recorded IP address
