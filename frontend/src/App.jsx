@@ -523,7 +523,7 @@ function Admin() {
       setNetworkConfigured(data.configured);
       setNetworkMessage(
         data.configured
-          ? "Authorized QLeap network saved."
+          ? "Authorized network saved."
           : "No network is configured. Attendance is denied until one is saved.",
       );
     } catch (e) {
