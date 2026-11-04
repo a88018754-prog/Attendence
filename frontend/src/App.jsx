@@ -144,7 +144,43 @@ function Guard({ children, admin = false }) {
     <Navigate to="/login" />
   );
 }
-function Nav() {
+function ThemeToggle({ theme, onToggleTheme }) {
+  return (
+    <button
+      className="theme-toggle"
+      type="button"
+      onClick={onToggleTheme}
+      aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+      aria-pressed={theme === "dark"}
+      title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+      role="switch"
+      aria-checked={theme === "dark"}
+    >
+      <span className="theme-toggle-track" aria-hidden="true">
+        <span className="theme-toggle-icon sun">☀</span>
+        <span className="theme-toggle-icon moon">☾</span>
+        <span className="theme-toggle-thumb" />
+      </span>
+    </button>
+  );
+}
+function Welcome({ theme, onToggleTheme }) {
+  const navigate = useNavigate();
+  return (
+    <main className="welcome">
+      <div className="welcome-theme-toggle">
+        <ThemeToggle theme={theme} onToggleTheme={onToggleTheme} />
+      </div>
+      <section className="welcome-content">
+        <div className="welcome-brand">AttendAI</div>
+        <button type="button" onClick={() => navigate("/login")}>
+          Enter
+        </button>
+      </section>
+    </main>
+  );
+}
+function Nav({ theme, onToggleTheme }) {
   const u = getUser(),
     nav = useNavigate();
   return (
@@ -153,6 +189,7 @@ function Nav() {
         ◉ AttendAI
       </Link>
       <div>
+        <ThemeToggle theme={theme} onToggleTheme={onToggleTheme} />
         {u && (
           <>
             <span>{u.name}</span>
@@ -160,6 +197,7 @@ function Nav() {
               className="secondary"
               onClick={() => {
                 localStorage.clear();
+                localStorage.setItem("theme", theme);
                 nav("/login");
               }}
             >
@@ -171,7 +209,7 @@ function Nav() {
     </nav>
   );
 }
-function Auth({ register = false }) {
+function Auth({ register = false, theme, onToggleTheme }) {
   const [form, setForm] = useState({
       name: "",
       email: "",
@@ -260,6 +298,9 @@ function Auth({ register = false }) {
   }
   return (
     <main className="auth">
+      <div className="auth-theme-toggle">
+        <ThemeToggle theme={theme} onToggleTheme={onToggleTheme} />
+      </div>
       <section className="panel">
         <div className="eyebrow">SMART CAMPUS · ATTENDANCE</div>
         <h1>{register ? "Create student account" : "Welcome back"}</h1>
@@ -353,7 +394,7 @@ function Auth({ register = false }) {
     </main>
   );
 }
-function Student() {
+function Student({ theme, onToggleTheme }) {
   const user = getUser(),
     [history, setHistory] = useState([]),
     [msg, setMsg] = useState(""),
@@ -415,7 +456,7 @@ function Student() {
   }
   return (
     <>
-      <Nav />
+      <Nav theme={theme} onToggleTheme={onToggleTheme} />
       <main className="page">
         <div className="eyebrow">STUDENT PORTAL</div>
         <h1>Hello, {user.name.split(" ")[0]} 👋</h1>
@@ -435,12 +476,114 @@ function Student() {
           </div>
           <video ref={video} autoPlay muted playsInline />
         </section>
+        <AttendanceCalendar records={history} />
         <section className="panel">
           <h2>Attendance history</h2>
           <Records rows={history} />
         </section>
       </main>
     </>
+  );
+}
+function AttendanceCalendar({ records }) {
+  const [visibleMonth, setVisibleMonth] = useState(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  });
+  const year = visibleMonth.getFullYear();
+  const month = visibleMonth.getMonth();
+  const firstWeekday = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const recordsByDate = new Map(records.map((record) => [record.date, record]));
+  const monthLabel = visibleMonth.toLocaleDateString(undefined, {
+    month: "long",
+    year: "numeric",
+  });
+  const cells = [
+    ...Array(firstWeekday).fill(null),
+    ...Array.from({ length: daysInMonth }, (_, index) => index + 1),
+  ];
+
+  function changeMonth(offset) {
+    setVisibleMonth((current) =>
+      new Date(current.getFullYear(), current.getMonth() + offset, 1),
+    );
+  }
+
+  return (
+    <section className="panel attendance-calendar">
+      <div className="calendar-heading">
+        <h2>Monthly attendance</h2>
+        <div className="calendar-navigation">
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => changeMonth(-1)}
+            aria-label="Previous month"
+          >
+            ‹
+          </button>
+          <strong aria-live="polite">{monthLabel}</strong>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => changeMonth(1)}
+            aria-label="Next month"
+          >
+            ›
+          </button>
+        </div>
+      </div>
+      <div className="calendar-grid" role="grid" aria-label={monthLabel}>
+        {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
+          <div className="calendar-weekday" role="columnheader" key={day}>
+            {day}
+          </div>
+        ))}
+        {cells.map((day, index) => {
+          if (day === null) {
+            return (
+              <div
+                className="calendar-day calendar-day-empty"
+                role="gridcell"
+                aria-hidden="true"
+                key={`empty-${index}`}
+              />
+            );
+          }
+          const date = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+          const record = recordsByDate.get(date);
+          const statusClass = record
+            ? `calendar-day-${record.status.toLowerCase()}`
+            : "";
+
+          return (
+            <div
+              className={`calendar-day ${statusClass}`}
+              role="gridcell"
+              aria-label={`${date}: ${record?.status || "No attendance record"}`}
+              key={date}
+            >
+              <span className="calendar-day-number">{day}</span>
+              {record && (
+                <span className="calendar-day-status">{record.status}</span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <div className="calendar-legend" aria-label="Attendance status legend">
+        {["Present", "Absent", "Late"].map((status) => (
+          <span className="calendar-legend-item" key={status}>
+            <span
+              className={`calendar-legend-dot calendar-day-${status.toLowerCase()}`}
+              aria-hidden="true"
+            />
+            {status}
+          </span>
+        ))}
+      </div>
+    </section>
   );
 }
 function Records({ rows, ipLabel = "IP address" }) {
@@ -476,7 +619,7 @@ function Records({ rows, ipLabel = "IP address" }) {
     </div>
   );
 }
-function Admin() {
+function Admin({ theme, onToggleTheme }) {
   const [summary, setSummary] = useState(null),
     [students, setStudents] = useState([]),
     [err, setErr] = useState(""),
@@ -557,7 +700,7 @@ function Admin() {
   };
   return (
     <>
-      <Nav />
+      <Nav theme={theme} onToggleTheme={onToggleTheme} />
       <main className="page">
         <div className="eyebrow">ADMIN CONSOLE</div>
         <h1>Attendance overview</h1>
@@ -569,14 +712,9 @@ function Admin() {
           <summary>Settings</summary>
           <section>
             <h2>Authorized Network</h2>
-            <p className="muted">
-              Enter the college public IP address or CIDR range. Separate
-              multiple entries with commas. Attendance is denied until an
-              authorized network is configured.
-            </p>
             <form onSubmit={saveNetworkRestriction}>
               <label>
-                Public IP / CIDR
+                IP / CIDR
                 <input
                   type="text"
                   value={networkRanges}
@@ -657,29 +795,42 @@ function Admin() {
   );
 }
 export default function App() {
+  const [theme, setTheme] = useState(() =>
+    localStorage.getItem("theme") === "dark" ? "dark" : "light",
+  );
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem("theme", theme);
+  }, [theme]);
+
+  const toggleTheme = () =>
+    setTheme((currentTheme) => (currentTheme === "dark" ? "light" : "dark"));
+
   return (
     <Routes>
       <Route
         path="/"
+        element={<Welcome theme={theme} onToggleTheme={toggleTheme} />}
+      />
+      <Route
+        path="/login"
+        element={<Auth theme={theme} onToggleTheme={toggleTheme} />}
+      />
+      <Route
+        path="/register"
         element={
-          <Navigate
-            to={
-              getUser()
-                ? getUser().role === "admin"
-                  ? "/admin"
-                  : "/student"
-                : "/login"
-            }
+          <Auth
+            register
+            theme={theme}
+            onToggleTheme={toggleTheme}
           />
         }
       />
-      <Route path="/login" element={<Auth />} />
-      <Route path="/register" element={<Auth register />} />
       <Route
         path="/student"
         element={
           <Guard>
-            <Student />
+            <Student theme={theme} onToggleTheme={toggleTheme} />
           </Guard>
         }
       />
@@ -687,7 +838,7 @@ export default function App() {
         path="/admin"
         element={
           <Guard admin>
-            <Admin />
+            <Admin theme={theme} onToggleTheme={toggleTheme} />
           </Guard>
         }
       />
