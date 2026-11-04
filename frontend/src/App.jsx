@@ -356,8 +356,6 @@ function Auth({ register = false }) {
 function Student() {
   const user = getUser(),
     [history, setHistory] = useState([]),
-    [clientIp, setClientIp] = useState(""),
-    [ipError, setIpError] = useState(""),
     [msg, setMsg] = useState(""),
     [busy, setBusy] = useState(false),
     video = useRef(null),
@@ -367,10 +365,6 @@ function Student() {
       .get("/attendance/mine")
       .then((r) => setHistory(r.data))
       .catch(() => {});
-    api
-      .get("/attendance/my-ip")
-      .then(({ data }) => setClientIp(data.ip))
-      .catch(() => setIpError("Could not retrieve your connection IP address."));
     return () => {
       stopStream(stream.current);
       stream.current = null;
@@ -433,12 +427,6 @@ function Student() {
             <h2>Today's attendance</h2>
             <p className="muted">
               Connect to institute Wi-Fi, then verify your face.
-            </p>
-            <p className="muted" aria-live="polite">
-              IP address seen by attendance server:{" "}
-              {clientIp
-                ? `${clientIp}${clientIp === "::1" || clientIp === "127.0.0.1" ? " (localhost)" : ""}`
-                : ipError || "Checking…"}
             </p>
             <button onClick={mark} disabled={busy}>
               {busy ? "Verifying…" : "Mark attendance with face"}
